@@ -137,7 +137,7 @@ sys.path.insert(0, os.path.join(COMFYUI_DIR))
 sys.path.insert(0, os.path.join(COMFYUI_DIR, 'custom_nodes'))
 try:
     m = importlib.import_module("ComfyUI_NAG.node")
-    print("IMPORT-OK", getattr(m, "__file__", "<​no file>"))
+    print("IMPORT-OK", getattr(m, "__file__", "<no file>"))    
 except Exception:
     traceback.print_exc()
     print("IMPORT-FAILED")
