@@ -9,7 +9,7 @@ echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') Script invoked: $0" >> "$LOG"
 # Configurable vars (can be passed as env)
 COMFYUI_DIR="${COMFYUI_DIR:-/opt/workspace-internal/ComfyUI}"
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
-# Default upstream (ChenDarYen) - you confirmed this should be default
+# Default upstream (ChenDarYen)
 UPSTREAM_NODE_REPO="${UPSTREAM_NODE_REPO:-https://github.com/ChenDarYen/ComfyUI-NAG.git}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 INSTALL_WAIT_TIMEOUT="${INSTALL_WAIT_TIMEOUT:-1800}" # seconds
@@ -65,7 +65,7 @@ while true; do
     break
   fi
   if [ "$waited" -ge "$INSTALL_WAIT_TIMEOUT" ]; then
-    log "TIMEOUT waiting for Lustify after ${waited}s — proceeding anyway"
+    log "TIMEOUT waiting for Lustify after ${waited}s - proceeding anyway"
     break
   fi
   sleep "$INSTALL_POLL_INTERVAL"
@@ -183,9 +183,9 @@ for rel in "chroma/layers.py" "chroma/model.py"; do
     sed -E -i 's/\bcomfy\.ldm\.chroma\b/comfy.ldm.flux/g' "$f" || true
     if ! cmp -s "${f}.orig" "$f"; then
       log "File $f modified; appending diff to log"
-      echo "----- DIFF for $rel -----" >> "$LOG"
+      echo "---- DIFF for $rel ----" >> "$LOG"
       diff -u "${f}.orig" "$f" >> "$LOG" 2>&1 || true
-      echo "----- END DIFF -----" >> "$LOG"
+      echo "---- END DIFF ----" >> "$LOG"
       PATCHED_FILES+=("$rel")
     else
       log "No changes required for $f"
@@ -212,7 +212,7 @@ else
   log "No existing custom node found to reference for ownership/permissions; leaving defaults"
 fi
 
-# Programmatic import test using the exact snippet you requested.
+# Programmatic import test using the exact snippet requested.
 log "Running required programmatic import test (captures output)"
 IMPORT_TEST_OUT=$(python3 - <<'PY' 2>&1 || true
 import importlib, traceback
@@ -227,9 +227,9 @@ PY
 PY_RC=$? || true
 
 # Append import test output to log
-echo "----- Programmatic import test output -----" >> "$LOG"
+echo "---- Programmatic import test output ----" >> "$LOG"
 echo "$IMPORT_TEST_OUT" >> "$LOG"
-echo "----- End import test output -----" >> "$LOG"
+echo "---- End import test output ----" >> "$LOG"
 # Also echo to console for immediate visibility
 echo "$IMPORT_TEST_OUT"
 
@@ -241,15 +241,15 @@ if [ $PY_RC -ne 0 ]; then
   for rel in "chroma/layers.py" "chroma/model.py"; do
     f="$TARGET_DIR/$rel"
     if [ -f "${f}.orig" ] && [ -f "$f" ]; then
-      echo "===== DIFF for $rel (orig -> current) =====" >> "$LOG"
+      echo "==== DIFF for $rel (orig -> current) ====" >> "$LOG"
       diff -u "${f}.orig" "$f" >> "$LOG" 2>&1 || true
-      echo "===== END DIFF =====" >> "$LOG"
+      echo "==== END DIFF ====" >> "$LOG"
     elif [ -f "$f" ]; then
-      echo "===== Current contents of $rel =====" >> "$LOG"
+      echo "==== Current contents of $rel ====" >> "$LOG"
       sed -n '1,400p' "$f" >> "$LOG" 2>&1 || true
-      echo "===== END contents =====" >> "$LOG"
+      echo "==== END contents ====" >> "$LOG"
     else
-      echo "===== $rel not present =====" >> "$LOG"
+      echo "==== $rel not present ====" >> "$LOG"
     fi
   done
 
@@ -317,7 +317,7 @@ restart_comfyui() {
   log "No restart detected after timeout"
 
   if [ "${FORCE_RESTART:-0}" = "1" ]; then
-    log "FORCE_RESTART=1 set — escalating: sending SIGKILL to old PIDs"
+    log "FORCE_RESTART=1 set - escalating: sending SIGKILL to old PIDs"
     if kill -KILL $OLD_PIDS >> "$LOG" 2>&1; then
       log "SIGKILL sent to old PIDs; waiting briefly for supervisor to restart"
       sleep 5
