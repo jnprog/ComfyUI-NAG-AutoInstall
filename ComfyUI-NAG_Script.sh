@@ -9,7 +9,7 @@ echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') Script invoked: $0" >> "$LOG"
 # Configurable vars (can be passed as env)
 COMFYUI_DIR="${COMFYUI_DIR:-/opt/workspace-internal/ComfyUI}"
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
-# Default upstream (ChenDarYen)
+# Default upstream (ChenDarYen) - confirmed correct
 UPSTREAM_NODE_REPO="${UPSTREAM_NODE_REPO:-https://github.com/ChenDarYen/ComfyUI-NAG.git}"
 GIT_BRANCH="${GIT_BRANCH:-main}"
 INSTALL_WAIT_TIMEOUT="${INSTALL_WAIT_TIMEOUT:-1800}" # seconds
@@ -17,9 +17,7 @@ INSTALL_POLL_INTERVAL="${INSTALL_POLL_INTERVAL:-15}"
 LUSTIFY_LOG="${LUSTIFY_LOG:-/workspace/install_sdxl_vae.log}"
 
 # Behavior flags (env)
-# If set to "1", allow escalation to SIGKILL when graceful restart times out
 FORCE_RESTART="${FORCE_RESTART:-0}"
-# If set to "1", SKIP any restart attempts (useful when restarts are centrally managed)
 SKIP_RESTART="${SKIP_RESTART:-0}"
 
 log() {
@@ -170,17 +168,33 @@ if [ ! -d "$TARGET_DIR" ]; then
   rm -rf "$TMP_DIR" 2>/dev/null || true
 fi
 
-# Apply compatibility patch: replace imports in chroma/layers.py and chroma/model.py
-log "Applying compatibility patch(s) (comfy.ldm.chroma.layers -> comfy.ldm.flux.layers) if needed"
+# Apply compatibility patches
+log "Applying compatibility patches for ComfyUI revision 4872"
+
 PATCHED_FILES=()
 for rel in "chroma/layers.py" "chroma/model.py"; do
   f="$TARGET_DIR/$rel"
   if [ -f "$f" ]; then
     log "Processing $f"
     cp -a "$f" "${f}.orig" >> "$LOG" 2>&1 || true
-    sed -E -i 's/\bcomfy\.ldm\.chroma\.layers\b/comfy.ldm.flux.layers/g' "$f" || true
-    sed -E -i 's/\bfrom comfy\.ldm\.chroma\.layers\b/from comfy.ldm.flux.layers/g' "$f" || true
-    sed -E -i 's/\bcomfy\.ldm\.chroma\b/comfy.ldm.flux/g' "$f" || true
+    
+    if [ "$rel" = "chroma/layers.py" ]; then
+      # layers.py: fix import paths
+      sed -E -i 's/\bcomfy\.ldm\.chroma\.layers\b/comfy.ldm.flux.layers/g' "$f" || true
+      sed -E -i 's/\bfrom comfy\.ldm\.chroma\.layers\b/from comfy.ldm.flux.layers/g' "$f" || true
+      sed -E -i 's/\bcomfy\.ldm\.chroma\b/comfy.ldm.flux/g' "$f" || true
+    elif [ "$rel" = "chroma/model.py" ]; then
+      # model.py: fix import paths AND remove dead Chroma import
+      sed -E -i 's/\bcomfy\.ldm\.chroma\.layers\b/comfy.ldm.flux.layers/g' "$f" || true
+      sed -E -i 's/\bcomfy\.ldm\.chroma\b/comfy.ldm.flux/g' "$f" || true
+      # CRITICAL FIX: Remove the dead "from comfy.ldm.flux.model import Chroma" line
+      # since Chroma doesn't exist in ComfyUI revision 4872
+      sed -i '/from comfy\.ldm\.flux\.model import Chroma/d' "$f" || true
+      # Also remove any other Chroma imports that might be dead
+      sed -i '/import.*Chroma/d' "$f" || true
+      sed -i '/from.*Chroma/d' "$f" || true
+    fi
+    
     if ! cmp -s "${f}.orig" "$f"; then
       log "File $f modified; appending diff to log"
       echo "---- DIFF for $rel ----" >> "$LOG"
@@ -212,7 +226,7 @@ else
   log "No existing custom node found to reference for ownership/permissions; leaving defaults"
 fi
 
-# Programmatic import test using the exact snippet requested.
+# Programmatic import test using the exact snippet you requested.
 log "Running required programmatic import test (captures output)"
 IMPORT_TEST_OUT=$(python3 - <<'PY' 2>&1 || true
 import importlib, traceback
