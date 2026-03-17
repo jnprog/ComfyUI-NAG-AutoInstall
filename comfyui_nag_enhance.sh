@@ -45,7 +45,6 @@ download_civitai_model() {
   log "Starting CivitAI download: $description"
   log "Version ID: $version_id"
   
-  # CivitAI download URL format (uses version ID directly)
   local download_url="https://civitai.com/api/download/models/$version_id"
   
   curl -L --progress-bar \
@@ -64,9 +63,49 @@ download_civitai_model() {
   log "CivitAI download completed: $description"
 }
 
+# Helper: download from google drive (handles confirm token for large files)
+gdrive_download() {
+  local FILEID="$1"
+  local OUT="$2"
+  log "gdrive_download: fileid=$FILEID out=$OUT"
+  mkdir -p "$(dirname "$OUT")"
+
+  local COOKIE PAGE CONFIRM
+  COOKIE=$(mktemp)
+  PAGE=$(mktemp)
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -s -c "$COOKIE" -L "https://docs.google.com/uc?export=download&id=${FILEID}" -o "$PAGE"
+    CONFIRM=$(sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' "$PAGE" | head -n1 || true)
+    if [ -n "$CONFIRM" ]; then
+      curl -L --progress-bar -b "$COOKIE" "https://docs.google.com/uc?export=download&confirm=${CONFIRM}&id=${FILEID}" -o "$OUT" 2>&1 | tee -a "$LOG_FILE"
+    else
+      curl -L --progress-bar -b "$COOKIE" "https://docs.google.com/uc?export=download&id=${FILEID}" -o "$OUT" 2>&1 | tee -a "$LOG_FILE"
+    fi
+    rm -f "$COOKIE" "$PAGE"
+    return 0
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget --quiet --save-cookies "$COOKIE" --keep-session-cookies --no-check-certificate "https://docs.google.com/uc?export=download&id=${FILEID}" -O "$PAGE"
+    CONFIRM=$(sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p' "$PAGE" | head -n1 || true)
+    if [ -n "$CONFIRM" ]; then
+      wget --progress=bar:force:noscroll --load-cookies "$COOKIE" "https://docs.google.com/uc?export=download&confirm=${CONFIRM}&id=${FILEID}" -O "$OUT" 2>&1 | tee -a "$LOG_FILE"
+    else
+      wget --progress=bar:force:noscroll --load-cookies "$COOKIE" "https://docs.google.com/uc?export=download&id=${FILEID}" -O "$OUT" 2>&1 | tee -a "$LOG_FILE"
+    fi
+    rm -f "$COOKIE" "$PAGE"
+    return 0
+  fi
+
+  log "No curl or wget available for Google Drive download"
+  rm -f "$COOKIE" "$PAGE"
+  return 1
+}
+
 log "=== COMFYUI-NAG ENHANCEMENT STARTED ==="
 
-# Find ComfyUI directory - Vast.ai templates vary
+# Find ComfyUI directory
 COMFYUI_DIR=""
 if [ -d "/ComfyUI" ] && [ -f "/ComfyUI/main.py" ]; then
   COMFYUI_DIR="/ComfyUI"
@@ -75,7 +114,6 @@ elif [ -d "/workspace/ComfyUI" ] && [ -f "/workspace/ComfyUI/main.py" ]; then
   COMFYUI_DIR="/workspace/ComfyUI"
   log "Found ComfyUI at: /workspace/ComfyUI"
 else
-  # Search for it
   COMFYUI_DIR=$(find / -name "main.py" -path "*/ComfyUI/*" -exec dirname {} \; 2>/dev/null | head -1)
   if [ -z "$COMFYUI_DIR" ]; then
     log "ERROR: Could not find ComfyUI directory"
@@ -85,15 +123,15 @@ else
   fi
 fi
 
-# Install system dependencies if needed
+# Install system dependencies
 log "Installing system dependencies"
 apt-get update > /dev/null 2>&1 || true
 DEBIAN_FRONTEND=noninteractive apt-get install -y git wget curl > /dev/null 2>&1 || true
 
-# Create workspace directory structure
+# Create workspace directory structure (matching gist layout)
 log "Creating workspace directory structure"
-mkdir -p /workspace/models/checkpoints
-mkdir -p /workspace/models/vae
+mkdir -p /workspace/models/checkpoints/sdxl
+mkdir -p /workspace/models/vae/sdxl
 mkdir -p /workspace/models
 
 # Download Lustify model from CivitAI
@@ -103,7 +141,7 @@ if [ -z "$CIVITAI_TOKEN" ]; then
   exit 1
 fi
 
-cd /workspace/models/checkpoints
+cd /workspace/models/checkpoints/sdxl
 if [ ! -f "lustifySDXLNSFW_oltINPAINTING.safetensors" ]; then
   download_civitai_model \
     "1588039" \
@@ -114,8 +152,8 @@ else
   log "Lustify model already exists - skipping download"
 fi
 
-# Download SDXL VAE with progress
-cd /workspace/models/vae  
+# Download SDXL VAE
+cd /workspace/models/vae/sdxl
 if [ ! -f "sdxl_vae.safetensors" ]; then
   download_with_progress \
     "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors" \
@@ -125,27 +163,93 @@ else
   log "SDXL VAE already exists - skipping download"
 fi
 
-# Download workflow JSON files (replace with actual URLs)
-log "Downloading workflow JSON files"
-mkdir -p /workspace/workflows
-cd /workspace/workflows
+# === WORKFLOWS (Google Drive + rclone fallback from your gist) ===
+RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive}"
+WORKFLOW_DRIVE_PATH="${WORKFLOW_DRIVE_PATH:-}"
+DRIVE_FILE_PATH="${DRIVE_FILE_PATH:-}"
 
-# Example workflows - replace with your actual URLs
-if [ ! -f "lustify_workflow1.json" ]; then
-  download_with_progress \
-    "https://your-workflow-url1.com/lustify_workflow1.json" \
-    "lustify_workflow1.json" \
-    "Lustify Workflow 1"
+WORKFLOW_DIR="/workspace/user/default/workflows/Lustify SDXL"
+WF1_NAME='LUSTIFY! SDXL - OLT INPAINTING - NON-DMD2.json'
+WF2_NAME='LUSTIFY! SDXL - OLT INPAINTING - DMD2.json'
+WF1_DEST="${WORKFLOW_DIR}/${WF1_NAME}"
+WF2_DEST="${WORKFLOW_DIR}/${WF2_NAME}"
+mkdir -p "$WORKFLOW_DIR"
+
+download_workflow_by_id_or_rclone() {
+  local FILEID="$1"
+  local REMOTE_PATH="$2"
+  local OUT="$3"
+
+  if [ -f "$OUT" ]; then
+    log "Workflow already exists: $OUT"
+    return 0
+  fi
+
+  if [ -n "$FILEID" ]; then
+    log "Attempting direct GDrive download of workflow (file id: $FILEID) -> $OUT"
+    if gdrive_download "$FILEID" "$OUT"; then
+      chmod 644 "$OUT" || true
+      log "Downloaded workflow to $OUT"
+      return 0
+    else
+      log "Direct workflow download failed for file id $FILEID"
+    fi
+  fi
+
+  # rclone fallback
+  if command -v rclone >/dev/null 2>&1 && [ -f /workspace/service-account.json ] && [ -n "$REMOTE_PATH" ]; then
+    log "Attempting rclone copy of ${RCLONE_REMOTE}:${REMOTE_PATH} -> ${OUT}"
+    mkdir -p "$(dirname "$OUT")"
+    if rclone copyto --drive-chunk-size 64M --transfers 1 --progress "${RCLONE_REMOTE}:${REMOTE_PATH}" "${OUT}" 2>&1 | tee -a "$LOG_FILE"; then
+      chmod 644 "$OUT" || true
+      log "rclone copied workflow to $OUT"
+      return 0
+    else
+      log "rclone copyto failed for ${RCLONE_REMOTE}:${REMOTE_PATH}"
+    fi
+  fi
+
+  log "Failed to obtain workflow -> $OUT"
+  return 1
+}
+
+# Download service-account.json if needed
+if [ ! -f /workspace/service-account.json ] && [ -n "${SA_JSON_FILE_ID:-}" ]; then
+  log "Downloading service-account.json from Drive (file id: $SA_JSON_FILE_ID)"
+  if gdrive_download "$SA_JSON_FILE_ID" /workspace/service-account.json; then
+    chmod 600 /workspace/service-account.json || true
+    log "Downloaded /workspace/service-account.json"
+  else
+    log "Failed to download service-account.json"
+  fi
 fi
 
-if [ ! -f "lustify_workflow2.json" ]; then
-  download_with_progress \
-    "https://your-workflow-url2.com/lustify_workflow2.json" \
-    "lustify_workflow2.json" \
-    "Lustify Workflow 2"
+# Create rclone.conf if service account exists
+if [ -f /workspace/service-account.json ]; then
+  RCLONE_CONF_DIR="/root/.config/rclone"
+  mkdir -p "$RCLONE_CONF_DIR"
+  RCLONE_CONF_PATH="$RCLONE_CONF_DIR/rclone.conf"
+  printf '[%s]\ntype = drive\nscope = drive\nservice_account_file = /workspace/service-account.json\n' "$RCLONE_REMOTE" > "$RCLONE_CONF_PATH"
+  chmod 600 "$RCLONE_CONF_PATH"
+  log "Created minimal rclone.conf for remote [$RCLONE_REMOTE]"
 fi
 
-# Create symlink for models if ComfyUI doesn't have models directory
+# Install rclone if needed for fallback
+REMOTE_FOLDER="${WORKFLOW_DRIVE_PATH:-$DRIVE_FILE_PATH}"
+if [ -f /workspace/service-account.json ] && [ -n "$REMOTE_FOLDER" ] && ! command -v rclone >/dev/null 2>&1; then
+  log "rclone not found — installing"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://rclone.org/install.sh | bash 2>&1 | tee -a "$LOG_FILE" || true
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://rclone.org/install.sh | bash 2>&1 | tee -a "$LOG_FILE" || true
+  fi
+fi
+
+log "Downloading workflows..."
+download_workflow_by_id_or_rclone "${WORKFLOW1_FILE_ID:-}" "${REMOTE_FOLDER:+${REMOTE_FOLDER}/${WF1_NAME}}" "$WF1_DEST" || true
+download_workflow_by_id_or_rclone "${WORKFLOW2_FILE_ID:-}" "${REMOTE_FOLDER:+${REMOTE_FOLDER}/${WF2_NAME}}" "$WF2_DEST" || true
+
+# Create symlink for models
 if [ ! -d "$COMFYUI_DIR/models" ]; then
   log "Creating models symlink from $COMFYUI_DIR/models to /workspace/models"
   ln -sfn /workspace/models "$COMFYUI_DIR/models"
@@ -153,34 +257,24 @@ else
   log "ComfyUI models directory already exists - skipping symlink"
 fi
 
-# Install custom nodes
+# Install custom nodes (unchanged from your version)
 log "Installing custom nodes"
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 mkdir -p "$CUSTOM_NODES_DIR"
-
 cd "$CUSTOM_NODES_DIR"
 
-# Install essential custom nodes
-if [ ! -d "ComfyUI-Manager" ]; then
-  log "Cloning ComfyUI-Manager..."
-  git clone https://github.com/ltdrdata/ComfyUI-Manager.git
-else
-  log "ComfyUI-Manager already exists - skipping"
-fi
-
-if [ ! -d "ComfyUI-Impact-Pack" ]; then
-  log "Cloning ComfyUI-Impact-Pack..."
-  git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
-else
-  log "ComfyUI-Impact-Pack already exists - skipping"
-fi
-
-if [ ! -d "ComfyUI_IPAdapter_plus" ]; then
-  log "Cloning ComfyUI_IPAdapter_plus..."
-  git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus.git
-else
-  log "ComfyUI_IPAdapter_plus already exists - skipping"
-fi
+for repo in \
+  "https://github.com/ltdrdata/ComfyUI-Manager.git" \
+  "https://github.com/ltdrdata/ComfyUI-Impact-Pack.git" \
+  "https://github.com/cubiq/ComfyUI_IPAdapter_plus.git"; do
+  dir=$(basename "$repo" .git)
+  if [ ! -d "$dir" ]; then
+    log "Cloning $dir..."
+    git clone "$repo"
+  else
+    log "$dir already exists - skipping"
+  fi
+done
 
 # Install and patch ComfyUI-NAG
 log "Installing ComfyUI-NAG"
@@ -189,27 +283,16 @@ if [ ! -d "ComfyUI_NAG" ]; then
   git clone https://github.com/ChenDarYen/ComfyUI-NAG.git
   mv ComfyUI-NAG ComfyUI_NAG
   
-  # Apply patches
   cd ComfyUI_NAG
-  
   log "Applying patches to ComfyUI-NAG..."
   
-  # Patch layers.py
-  if sed -i '5s|.*|from comfy.ldm.flux.layers import DoubleStreamBlock, SingleStreamBlock|' chroma/layers.py; then
-    log "✓ Patched chroma/layers.py"
-  else
-    log "⚠ Warning: Failed to patch chroma/layers.py"
-  fi
-  
-  # Patch model.py - remove Chroma imports and fix inheritance
+  sed -i '5s|.*|from comfy.ldm.flux.layers import DoubleStreamBlock, SingleStreamBlock|' chroma/layers.py || true
   sed -i '/from comfy\.ldm\.flux\.model import Chroma/d' chroma/model.py || true
   sed -i '/import.*Chroma/d' chroma/model.py || true
-  sed -i 's/class NAGChroma(Chroma):/class NAGChroma(Flux):/' chroma/model.py
+  sed -i 's/class NAGChroma(Chroma):/class NAGChroma(Flux):/' chroma/model.py || true
   
-  # Ensure Flux import
   if ! grep -q "from comfy.ldm.flux.model import Flux" chroma/model.py; then
     sed -i '1s|^|from comfy.ldm.flux.model import Flux\n|' chroma/model.py
-    log "✓ Added Flux import to chroma/model.py"
   fi
   
   cd "$CUSTOM_NODES_DIR"
@@ -218,14 +301,12 @@ else
   log "ComfyUI-NAG already exists - skipping installation"
 fi
 
-# Create __init__.py for custom_nodes directory
 if [ ! -f "$CUSTOM_NODES_DIR/__init__.py" ]; then
   touch "$CUSTOM_NODES_DIR/__init__.py"
   log "Created __init__.py for custom_nodes"
 fi
 
 log "=== ENHANCEMENT COMPLETED SUCCESSFULLY ==="
-log "Models installed: Lustify, SDXL VAE"
-log "Custom nodes installed: ComfyUI-Manager, Impact-Pack, IPAdapter, ComfyUI-NAG"
-log "ComfyUI-NAG patched for Flux compatibility"
+log "Models installed: Lustify (in sdxl/), SDXL VAE (in sdxl/), workflows in Lustify SDXL folder"
+log "Custom nodes: Manager, Impact-Pack, IPAdapter, ComfyUI-NAG (patched)"
 log "Ready to use ComfyUI with NAG support!"
