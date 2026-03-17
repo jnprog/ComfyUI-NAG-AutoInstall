@@ -12,7 +12,7 @@ log() {
   echo "[$timestamp] $*" | tee -a "$LOG_FILE"
 }
 
-# Function to download with progress (for public URLs)
+# Function to download with progress (for public URLs, using wget)
 download_with_progress() {
   local url="$1"
   local output="$2"
@@ -35,29 +35,29 @@ download_with_progress() {
   log "Download completed: $description"
 }
 
-# CivitAI download function
+# CivitAI download function (using curl for better redirect handling)
 download_civitai_model() {
-  local model_id="$1"
-  local version_id="$2"  
-  local output="$3"
-  local description="$4"
-  local api_key="$5"
+  local version_id="$1"  
+  local output="$2"
+  local description="$3"
+  local api_key="$4"
   
   log "Starting CivitAI download: $description"
-  log "Model ID: $model_id, Version ID: $version_id"
+  log "Version ID: $version_id"
   
-  # CivitAI download URL format
-  local download_url="https://civitai.com/api/download/models/$model_id?modelVersionId=$version_id"
+  # CivitAI download URL format (uses version ID directly)
+  local download_url="https://civitai.com/api/download/models/$version_id"
   
-  wget --progress=dot:mega \
-    --header="Authorization: Bearer $api_key" \
-    -O "$output" "$download_url" 2>&1 | while read line; do
-    if [[ "$line" == *[0-9]*"."[0-9]*"%"* ]]; then
+  curl -L --progress-bar \
+    --header "Authorization: Bearer $api_key" \
+    --header "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+    -o "$output" "$download_url" 2>&1 | while read line; do
+    if [[ "$line" == *%* ]]; then
       echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD PROGRESS: $line" | tee -a "$LOG_FILE"
-    elif [[ "$line" == *"saved"* ]]; then
+    elif [[ "$line" == *"saved"* || "$line" == *"complete"* ]]; then
       echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD COMPLETE: $line" | tee -a "$LOG_FILE"
     else
-      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] WGET: $line" >> "$LOG_FILE"
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] CURL: $line" >> "$LOG_FILE"
     fi
   done
   
@@ -106,7 +106,6 @@ fi
 cd /workspace/models/checkpoints
 if [ ! -f "lustifySDXLNSFW_oltINPAINTING.safetensors" ]; then
   download_civitai_model \
-    "573152" \
     "1588039" \
     "lustifySDXLNSFW_oltINPAINTING.safetensors" \
     "Lustify SDXL NSFW Inpainting Model" \
