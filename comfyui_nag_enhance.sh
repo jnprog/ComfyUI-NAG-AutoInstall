@@ -11,40 +11,8 @@ log() {
   timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
   echo "[$timestamp] $*" | tee -a "$LOG_FILE"
 }
-# Add this function for authenticated downloads
-download_with_hf_token() {
-  local url="$1"
-  local output="$2"
-  local description="$3"
-  local hf_token="$4"
-  
-  log "Starting authenticated download: $description"
-  log "URL: $url"
-  
-  wget --progress=dot:mega \
-    --header="Authorization: Bearer $hf_token" \
-    -O "$output" "$url" 2>&1 | while read line; do
-    if [[ "$line" == *[0-9]*"."[0-9]*"%"* ]]; then
-      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD PROGRESS: $line" | tee -a "$LOG_FILE"
-    elif [[ "$line" == *"saved"* ]]; then
-      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD COMPLETE: $line" | tee -a "$LOG_FILE"
-    else
-      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] WGET: $line" >> "$LOG_FILE"
-    fi
-  done
-}
 
-# In your main script, replace the Lustify download with:
-HF_TOKEN="YOUR_HUGGINGFACE_TOKEN_HERE"  # You'll need to set this
-
-if [ ! -f "lustifySDXLNSFW_oltINPAINTING.safetensors" ]; then
-  download_with_hf_token \
-    "https://huggingface.co/lokCX/Lustify-SDXL-NSFW-INPAINTING/resolve/main/lustifySDXLNSFW_oltINPAINTING.safetensors" \
-    "lustifySDXLNSFW_oltINPAINTING.safetensors" \
-    "Lustify SDXL NSFW Inpainting Model" \
-    "$HF_TOKEN"
-fi
-# Function to download with progress
+# Function to download with progress (for public URLs)
 download_with_progress() {
   local url="$1"
   local output="$2"
@@ -54,7 +22,6 @@ download_with_progress() {
   log "URL: $url"
   log "Output: $output"
   
-  # Use wget with progress bar and log to file
   wget --progress=dot:mega -O "$output" "$url" 2>&1 | while read line; do
     if [[ "$line" == *[0-9]*"."[0-9]*"%"* ]]; then
       echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD PROGRESS: $line" | tee -a "$LOG_FILE"
@@ -66,6 +33,35 @@ download_with_progress() {
   done
   
   log "Download completed: $description"
+}
+
+# CivitAI download function
+download_civitai_model() {
+  local model_id="$1"
+  local version_id="$2"  
+  local output="$3"
+  local description="$4"
+  local api_key="$5"
+  
+  log "Starting CivitAI download: $description"
+  log "Model ID: $model_id, Version ID: $version_id"
+  
+  # CivitAI download URL format
+  local download_url="https://civitai.com/api/download/models/$model_id?modelVersionId=$version_id"
+  
+  wget --progress=dot:mega \
+    --header="Authorization: Bearer $api_key" \
+    -O "$output" "$download_url" 2>&1 | while read line; do
+    if [[ "$line" == *[0-9]*"."[0-9]*"%"* ]]; then
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD PROGRESS: $line" | tee -a "$LOG_FILE"
+    elif [[ "$line" == *"saved"* ]]; then
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD COMPLETE: $line" | tee -a "$LOG_FILE"
+    else
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] WGET: $line" >> "$LOG_FILE"
+    fi
+  done
+  
+  log "CivitAI download completed: $description"
 }
 
 log "=== COMFYUI-NAG ENHANCEMENT STARTED ==="
@@ -100,18 +96,26 @@ mkdir -p /workspace/models/checkpoints
 mkdir -p /workspace/models/vae
 mkdir -p /workspace/models
 
-# Install Lustify model with progress
+# Download Lustify model from CivitAI
+CIVITAI_TOKEN="${CIVITAI_TOKEN:-}"
+if [ -z "$CIVITAI_TOKEN" ]; then
+  log "ERROR: CivitAI API key required for Lustify model download"
+  exit 1
+fi
+
 cd /workspace/models/checkpoints
 if [ ! -f "lustifySDXLNSFW_oltINPAINTING.safetensors" ]; then
-  download_with_progress \
-    "https://huggingface.co/lokCX/Lustify-SDXL-NSFW-INPAINTING/resolve/main/lustifySDXLNSFW_oltINPAINTING.safetensors" \
+  download_civitai_model \
+    "573152" \
+    "1588039" \
     "lustifySDXLNSFW_oltINPAINTING.safetensors" \
-    "Lustify SDXL NSFW Inpainting Model"
+    "Lustify SDXL NSFW Inpainting Model" \
+    "$CIVITAI_TOKEN"
 else
   log "Lustify model already exists - skipping download"
 fi
 
-# Install SDXL VAE with progress
+# Download SDXL VAE with progress
 cd /workspace/models/vae  
 if [ ! -f "sdxl_vae.safetensors" ]; then
   download_with_progress \
@@ -120,6 +124,26 @@ if [ ! -f "sdxl_vae.safetensors" ]; then
     "SDXL VAE Model"
 else
   log "SDXL VAE already exists - skipping download"
+fi
+
+# Download workflow JSON files (replace with actual URLs)
+log "Downloading workflow JSON files"
+mkdir -p /workspace/workflows
+cd /workspace/workflows
+
+# Example workflows - replace with your actual URLs
+if [ ! -f "lustify_workflow1.json" ]; then
+  download_with_progress \
+    "https://your-workflow-url1.com/lustify_workflow1.json" \
+    "lustify_workflow1.json" \
+    "Lustify Workflow 1"
+fi
+
+if [ ! -f "lustify_workflow2.json" ]; then
+  download_with_progress \
+    "https://your-workflow-url2.com/lustify_workflow2.json" \
+    "lustify_workflow2.json" \
+    "Lustify Workflow 2"
 fi
 
 # Create symlink for models if ComfyUI doesn't have models directory
