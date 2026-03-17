@@ -11,7 +11,39 @@ log() {
   timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
   echo "[$timestamp] $*" | tee -a "$LOG_FILE"
 }
+# Add this function for authenticated downloads
+download_with_hf_token() {
+  local url="$1"
+  local output="$2"
+  local description="$3"
+  local hf_token="$4"
+  
+  log "Starting authenticated download: $description"
+  log "URL: $url"
+  
+  wget --progress=dot:mega \
+    --header="Authorization: Bearer $hf_token" \
+    -O "$output" "$url" 2>&1 | while read line; do
+    if [[ "$line" == *[0-9]*"."[0-9]*"%"* ]]; then
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD PROGRESS: $line" | tee -a "$LOG_FILE"
+    elif [[ "$line" == *"saved"* ]]; then
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] DOWNLOAD COMPLETE: $line" | tee -a "$LOG_FILE"
+    else
+      echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] WGET: $line" >> "$LOG_FILE"
+    fi
+  done
+}
 
+# In your main script, replace the Lustify download with:
+HF_TOKEN="YOUR_HUGGINGFACE_TOKEN_HERE"  # You'll need to set this
+
+if [ ! -f "lustifySDXLNSFW_oltINPAINTING.safetensors" ]; then
+  download_with_hf_token \
+    "https://huggingface.co/lokCX/Lustify-SDXL-NSFW-INPAINTING/resolve/main/lustifySDXLNSFW_oltINPAINTING.safetensors" \
+    "lustifySDXLNSFW_oltINPAINTING.safetensors" \
+    "Lustify SDXL NSFW Inpainting Model" \
+    "$HF_TOKEN"
+fi
 # Function to download with progress
 download_with_progress() {
   local url="$1"
