@@ -7,7 +7,7 @@ echo "=== ComfyUI-NAG installer start: $(date -u) ===" >> "$LOG"
 echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') Script invoked: $0" >> "$LOG"
 
 # Configurable vars (can be passed as env)
-COMFYUI_DIR="${COMFYUI_DIR:-/opt/workspace-internal/ComfyUI}"
+COMFYUI_DIR="${COMFYUI_DIR:-/workspace/ComfyUI}"  # CHANGED: Use /workspace/ComfyUI directly
 CUSTOM_NODES_DIR="$COMFYUI_DIR/custom_nodes"
 # Default upstream (ChenDarYen) - confirmed correct
 UPSTREAM_NODE_REPO="${UPSTREAM_NODE_REPO:-https://github.com/ChenDarYen/ComfyUI-NAG.git}"
@@ -27,34 +27,14 @@ log() {
 log "Using COMFYUI_DIR=$COMFYUI_DIR"
 mkdir -p "$CUSTOM_NODES_DIR"
 
-# Ensure /workspace/ComfyUI points to authoritative COMFYUI_DIR
-if [ ! -e /workspace/ComfyUI ]; then
-  mkdir -p "$(dirname "$COMFYUI_DIR")"
-  mkdir -p "$COMFYUI_DIR"
-  ln -sfn "$COMFYUI_DIR" /workspace/ComfyUI
-  log "Created symlink /workspace/ComfyUI -> $COMFYUI_DIR"
-elif [ -L /workspace/ComfyUI ]; then
-  log "/workspace/ComfyUI already a symlink"
-else
-  if [ -z "$(ls -A /workspace/ComfyUI 2>/dev/null || true)" ]; then
-    rm -rf /workspace/ComfyUI
-    ln -sfn "$COMFYUI_DIR" /workspace/ComfyUI
-    log "Replaced empty /workspace/ComfyUI with symlink -> $COMFYUI_DIR"
-  else
-    log "WARN: /workspace/ComfyUI exists and is non-empty; not changing it."
-  fi
-fi
-
 # Wait for Lustify model + VAE or Lustify completion; proceed on timeout
 waited=0
 LUSTIFY_MODEL_OPT="$COMFYUI_DIR/models/checkpoints/lustifySDXLNSFW_oltINPAINTING.safetensors"
 VAE_FILE_OPT="$COMFYUI_DIR/models/vae/sdxl_vae.safetensors"
-LUSTIFY_MODEL_WS="/workspace/ComfyUI/models/checkpoints/lustifySDXLNSFW_oltINPAINTING.safetensors"
-VAE_FILE_WS="/workspace/ComfyUI/models/vae/sdxl_vae.safetensors"
 
 log "Waiting up to ${INSTALL_WAIT_TIMEOUT}s for Lustify model & VAE..."
 while true; do
-  if ( [ -s "$LUSTIFY_MODEL_OPT" ] && [ -s "$VAE_FILE_OPT" ] ) || ( [ -s "$LUSTIFY_MODEL_WS" ] && [ -s "$VAE_FILE_WS" ] ); then
+  if [ -s "$LUSTIFY_MODEL_OPT" ] && [ -s "$VAE_FILE_OPT" ]; then
     log "Models found."
     break
   fi
@@ -117,55 +97,63 @@ if [ ! -d "$TARGET_DIR" ]; then
     exit 4
   fi
 
-  log "Searching for node.py in cloned tree"
-  PKG_PARENT=$(find "$TMP_DIR" -maxdepth 3 -type f -name "node.py" -printf '%h\n' | head -n1 || true)
-  if [ -n "$PKG_PARENT" ]; then
-    log "Found node.py in: $PKG_PARENT"
-    base=$(basename "$PKG_PARENT")
-    mkdir -p "$(dirname "$TARGET_DIR")"
-    if [ "$base" = "ComfyUI_NAG" ] || [ "$base" = "ComfyUI-NAG" ]; then
-      log "Moving package directory $PKG_PARENT -> $TARGET_DIR"
-      rm -rf "$TARGET_DIR"
-      mv "$PKG_PARENT" "$TARGET_DIR" >> "$LOG" 2>&1 || true
-    else
-      log "Creating $TARGET_DIR and moving package contents"
-      rm -rf "$TARGET_DIR"
-      mkdir -p "$TARGET_DIR"
-      mv "$PKG_PARENT"/* "$TARGET_DIR"/ 2>>"$LOG" || true
-      if [ ! -f "$TARGET_DIR/node.py" ] && [ -d "$TARGET_DIR/ComfyUI_NAG" ]; then
-        mv "$TARGET_DIR/ComfyUI_NAG"/* "$TARGET_DIR"/ 2>>"$LOG" || true
-        rmdir "$TARGET_DIR/ComfyUI_NAG" 2>/dev/null || true
-      fi
-    fi
-
-    # Move any other helpful top-level files into target
-    shopt -s dotglob
-    for f in "$TMP_DIR"/*; do
-      bn=$(basename "$f")
-      if [ -e "$f" ] && [ "$bn" != "$(basename "$PKG_PARENT")" ]; then
-        mv -f "$f" "$TARGET_DIR"/ 2>/dev/null || true
-      fi
-    done
-    shopt -u dotglob
-
-    # Move .git if present
-    if [ -d "$TMP_DIR/.git" ]; then
-      mv -f "$TMP_DIR/.git" "$TARGET_DIR"/ 2>/dev/null || true
-    else
-      nested_git=$(find "$TMP_DIR" -maxdepth 2 -type d -name ".git" -print -quit || true)
-      if [ -n "$nested_git" ]; then
-        mv -f "$nested_git" "$TARGET_DIR"/ 2>/dev/null || true
-      fi
-    fi
-
-    log "Installed ComfyUI_NAG to $TARGET_DIR"
+  # CRITICAL FIX: Check if node.py is in the root of the cloned repo
+  if [ -f "$TMP_DIR/node.py" ]; then
+    # node.py is in root - this means the entire repo is the package
+    log "Found node.py in root of cloned repo - entire repo is the package"
+    rm -rf "$TARGET_DIR"
+    mv "$TMP_DIR" "$TARGET_DIR"
+    log "Moved entire cloned repo to $TARGET_DIR"
   else
-    log "ERROR: Could not find node.py in cloned tree; leaving tmp for inspection at $TMP_DIR"
-    echo "=== ComfyUI-NAG installer end (node.py not found) : $(date -u) ===" >> "$LOG"
-    exit 5
-  fi
+    # Fallback: look for node.py in subdirectories (original logic)
+    log "Searching for node.py in subdirectories of cloned tree"
+    PKG_PARENT=$(find "$TMP_DIR" -maxdepth 3 -type f -name "node.py" -printf '%h\n' | head -n1 || true)
+    if [ -n "$PKG_PARENT" ]; then
+      log "Found node.py in: $PKG_PARENT"
+      base=$(basename "$PKG_PARENT")
+      mkdir -p "$(dirname "$TARGET_DIR")"
+      if [ "$base" = "ComfyUI_NAG" ] || [ "$base" = "ComfyUI-NAG" ]; then
+        log "Moving package directory $PKG_PARENT -> $TARGET_DIR"
+        rm -rf "$TARGET_DIR"
+        mv "$PKG_PARENT" "$TARGET_DIR" >> "$LOG" 2>&1 || true
+      else
+        log "Creating $TARGET_DIR and moving package contents"
+        rm -rf "$TARGET_DIR"
+        mkdir -p "$TARGET_DIR"
+        mv "$PKG_PARENT"/* "$TARGET_DIR"/ 2>>"$LOG" || true
+        if [ ! -f "$TARGET_DIR/node.py" ] && [ -d "$TARGET_DIR/ComfyUI_NAG" ]; then
+          mv "$TARGET_DIR/ComfyUI_NAG"/* "$TARGET_DIR"/ 2>>"$LOG" || true
+          rmdir "$TARGET_DIR/ComfyUI_NAG" 2>/dev/null || true
+        fi
+      fi
 
-  rm -rf "$TMP_DIR" 2>/dev/null || true
+      # Move any other helpful top-level files into target
+      shopt -s dotglob
+      for f in "$TMP_DIR"/*; do
+        bn=$(basename "$f")
+        if [ -e "$f" ] && [ "$bn" != "$(basename "$PKG_PARENT")" ]; then
+          mv -f "$f" "$TARGET_DIR"/ 2>/dev/null || true
+        fi
+      done
+      shopt -u dotglob
+
+      # Move .git if present
+      if [ -d "$TMP_DIR/.git" ]; then
+        mv -f "$TMP_DIR/.git" "$TARGET_DIR"/ 2>/dev/null || true
+      else
+        nested_git=$(find "$TMP_DIR" -maxdepth 2 -type d -name ".git" -print -quit || true)
+        if [ -n "$nested_git" ]; then
+          mv -f "$nested_git" "$TARGET_DIR"/ 2>/dev/null || true
+        fi
+      fi
+
+      log "Installed ComfyUI_NAG to $TARGET_DIR"
+    else
+      log "ERROR: Could not find node.py in cloned tree; leaving tmp for inspection at $TMP_DIR"
+      echo "=== ComfyUI-NAG installer end (node.py not found) : $(date -u) ===" >> "$LOG"
+      exit 5
+    fi
+  fi
 fi
 
 # Apply compatibility patches
@@ -188,7 +176,6 @@ for rel in "chroma/layers.py" "chroma/model.py"; do
       sed -E -i 's/\bcomfy\.ldm\.chroma\.layers\b/comfy.ldm.flux.layers/g' "$f" || true
       sed -E -i 's/\bcomfy\.ldm\.chroma\b/comfy.ldm.flux/g' "$f" || true
       # CRITICAL FIX: Remove the dead "from comfy.ldm.flux.model import Chroma" line
-      # since Chroma doesn't exist in ComfyUI revision 4872
       sed -i '/from comfy\.ldm\.flux\.model import Chroma/d' "$f" || true
       # Also remove any other Chroma imports that might be dead
       sed -i '/import.*Chroma/d' "$f" || true
