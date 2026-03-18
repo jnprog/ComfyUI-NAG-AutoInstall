@@ -20,14 +20,13 @@ mkdir -p "$WORKFLOW_DIR"
 
 log "Downloading workflows from GitHub..."
 
-# Download from your GitHub repo (raw)
 curl -L --progress-bar -o "$WORKFLOW_DIR/LUSTIFY! SDXL - OLT INPAINTING - NON-DMD2.json" \
   "https://raw.githubusercontent.com/jnprog/ComfyUI-NAG-AutoInstall/main/workflows/LUSTIFY! SDXL - OLT INPAINTING - NON-DMD2.json"
 
 curl -L --progress-bar -o "$WORKFLOW_DIR/LUSTIFY! SDXL - OLT INPAINTING - DMD2.json" \
   "https://raw.githubusercontent.com/jnprog/ComfyUI-NAG-AutoInstall/main/workflows/LUSTIFY! SDXL - OLT INPAINTING - DMD2.json"
 
-log "Workflows downloaded successfully from GitHub"
+log "✅ Workflows downloaded successfully from GitHub"
 
 # Install custom nodes
 log "Installing custom nodes..."
@@ -43,14 +42,14 @@ for repo in "https://github.com/ltdrdata/ComfyUI-Manager.git" \
   fi
 done
 
-# Install and patch ComfyUI-NAG
+# Install and patch ComfyUI-NAG (strong patch)
 if [ ! -d "ComfyUI_NAG" ]; then
   log "Cloning and patching ComfyUI-NAG..."
   git clone https://github.com/ChenDarYen/ComfyUI-NAG.git
   mv ComfyUI-NAG ComfyUI_NAG
   cd ComfyUI_NAG
 
-  log "Applying patches..."
+  log "Applying patches to fix NoneType error..."
   sed -i 's|from .* import DoubleStreamBlock|from comfy.ldm.flux.layers import DoubleStreamBlock|' chroma/layers.py || true
   sed -i 's|from .* import SingleStreamBlock|from comfy.ldm.flux.layers import SingleStreamBlock|' chroma/layers.py || true
   sed -i '/Chroma/d' chroma/model.py || true
@@ -61,12 +60,12 @@ if [ ! -d "ComfyUI_NAG" ]; then
   fi
 
   cd ..
-  log "ComfyUI-NAG patched successfully"
+  log "✅ ComfyUI-NAG patched successfully"
 fi
 
 touch "$CUSTOM_NODES_DIR/__init__.py" 2>/dev/null || true
 
 log "=== ENHANCEMENT COMPLETED SUCCESSFULLY ==="
-log "Models: Lustify SDXL + SDXL VAE"
+log "Models: Lustify SDXL + SDXL VAE are ready"
 log "Workflows downloaded from GitHub"
 log "NAG node installed and patched"
