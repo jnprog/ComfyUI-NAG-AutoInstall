@@ -12,25 +12,38 @@ log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" | tee -a "$LOG"
 }
 
-log "=== COMFYUI-NAG ENHANCEMENT STARTED (Updated v4) ==="
+log "=== COMFYUI-NAG ENHANCEMENT STARTED (v6 - CIVITAI_TOKEN) ==="
 
 cd "$CUSTOM_NODES_DIR"
 
-# 1. Download models
-log "Downloading Lustify SDXL model..."
-curl -L --fail -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
-  "https://civitai.com/api/download/models/1588039?type=Model&format=SafeTensor&size=pruned&fp=fp16" || log "⚠️ Lustify download failed (check link)"
+# 1. Models using CIVITAI_TOKEN
+log "Downloading Lustify SDXL model using CIVITAI_TOKEN..."
+if [ -n "$CIVITAI_TOKEN" ]; then
+  curl -L --fail -H "Authorization: Bearer $CIVITAI_TOKEN" \
+    -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
+    "https://civitai.com/api/download/models/1588039"
+else
+  log "⚠️ CIVITAI_TOKEN not set - falling back to unauthenticated download"
+  curl -L --fail -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
+    "https://civitai.com/api/download/models/1588039"
+fi
+
+if [ -f "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" ]; then
+  log "✅ Lustify model downloaded successfully"
+else
+  log "❌ Lustify model download failed"
+fi
 
 log "Downloading SDXL VAE..."
 curl -L --fail -o "$MODELS_DIR/vae/sdxl_vae.safetensors" \
-  "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors" || log "⚠️ VAE download failed"
+  "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors"
 
-log "Creating symlink for easier loading..."
+log "Creating symlink..."
 ln -sf "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
   "$MODELS_DIR/checkpoints/LUSTIFY! SDXL - OLT INPAINTING.safetensors" || true
 
-# 2. Download workflows (URL-encoded)
-log "Downloading workflows from GitHub..."
+# 2. Workflows
+log "Downloading workflows..."
 curl -L --fail -o "$WORKFLOWS_DIR/LUSTIFY! SDXL - OLT INPAINTING - NON-DMD2.json" \
   "https://raw.githubusercontent.com/jnprog/ComfyUI-NAG-AutoInstall/main/workflows/LUSTIFY%21%20SDXL%20-%20OLT%20INPAINTING%20-%20NON-DMD2.json"
 
@@ -39,17 +52,13 @@ curl -L --fail -o "$WORKFLOWS_DIR/LUSTIFY! SDXL - OLT INPAINTING - DMD2.json" \
 
 log "✅ Workflows downloaded"
 
-# 3. Install supporting nodes
-log "Installing custom nodes..."
-for repo in ltdrdata/ComfyUI-Manager ltdrdata/ComfyUI-Impact-Pack cubiq/ComfyUI_IPAdapter_plus; do
-  node_name=$(basename "$repo")
-  if [ ! -d "$node_name" ]; then
-    git clone "https://github.com/$repo.git" || true
-    log "Cloned $node_name"
-  fi
-done
+# 3. Custom nodes (only Manager is essential)
+log "Installing ComfyUI-Manager..."
+if [ ! -d "ComfyUI-Manager" ]; then
+  git clone https://github.com/ltdrdata/ComfyUI-Manager.git
+fi
 
-# 4. Install + patch ComfyUI-NAG (using your proven patch)
+# 4. ComfyUI-NAG with your proven patch
 log "Installing ComfyUI-NAG..."
 if [ ! -d "ComfyUI_NAG" ]; then
   git clone https://github.com/ChenDarYen/ComfyUI-NAG.git
@@ -69,15 +78,14 @@ if [ ! -d "ComfyUI_NAG" ]; then
   cd "$CUSTOM_NODES_DIR"
   log "✓ ComfyUI-NAG installed and patched"
 else
-  log "ComfyUI-NAG already exists - skipping"
+  log "ComfyUI-NAG already exists"
 fi
 
-log "=== ENHANCEMENT COMPLETED SUCCESSFULLY ==="
-log "Lustify model, SDXL VAE, workflows, and patched NAG node are ready."
+log "=== ENHANCEMENT COMPLETED ==="
 
-# Optional: Restart ComfyUI so new nodes load cleanly
-log "Restarting ComfyUI to load new custom nodes..."
+# 5. Restart ComfyUI cleanly (fixed path)
+log "Restarting ComfyUI..."
 pkill -f "python.*main.py" || true
-sleep 5
+sleep 8
 /entrypoint.sh >> "$LOG" 2>&1 &
-log "ComfyUI restarted in background."
+log "ComfyUI restarted. Check port 18188."
