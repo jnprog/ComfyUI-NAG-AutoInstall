@@ -12,21 +12,15 @@ log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" | tee -a "$LOG"
 }
 
-log "=== COMFYUI-NAG ENHANCEMENT STARTED (v6 - CIVITAI_TOKEN) ==="
+log "=== COMFYUI-NAG ENHANCEMENT STARTED (v7 - Fixed Restart) ==="
 
 cd "$CUSTOM_NODES_DIR"
 
-# 1. Models using CIVITAI_TOKEN
+# 1. Models
 log "Downloading Lustify SDXL model using CIVITAI_TOKEN..."
-if [ -n "$CIVITAI_TOKEN" ]; then
-  curl -L --fail -H "Authorization: Bearer $CIVITAI_TOKEN" \
-    -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
-    "https://civitai.com/api/download/models/1588039"
-else
-  log "⚠️ CIVITAI_TOKEN not set - falling back to unauthenticated download"
-  curl -L --fail -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
-    "https://civitai.com/api/download/models/1588039"
-fi
+curl -L --fail -H "Authorization: Bearer $CIVITAI_TOKEN" \
+  -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
+  "https://civitai.com/api/download/models/1588039"
 
 if [ -f "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" ]; then
   log "✅ Lustify model downloaded successfully"
@@ -52,20 +46,20 @@ curl -L --fail -o "$WORKFLOWS_DIR/LUSTIFY! SDXL - OLT INPAINTING - DMD2.json" \
 
 log "✅ Workflows downloaded"
 
-# 3. Custom nodes (only Manager is essential)
+# 3. ComfyUI-Manager
 log "Installing ComfyUI-Manager..."
 if [ ! -d "ComfyUI-Manager" ]; then
   git clone https://github.com/ltdrdata/ComfyUI-Manager.git
 fi
 
-# 4. ComfyUI-NAG with your proven patch
+# 4. ComfyUI-NAG + proven patch
 log "Installing ComfyUI-NAG..."
 if [ ! -d "ComfyUI_NAG" ]; then
   git clone https://github.com/ChenDarYen/ComfyUI-NAG.git
   mv ComfyUI-NAG ComfyUI_NAG
   cd ComfyUI_NAG
 
-  log "Applying patches to ComfyUI-NAG..."
+  log "Applying patches..."
   sed -i '5s|.*|from comfy.ldm.flux.layers import DoubleStreamBlock, SingleStreamBlock|' chroma/layers.py || true
   sed -i '/from comfy\.ldm\.flux\.model import Chroma/d' chroma/model.py || true
   sed -i '/import.*Chroma/d' chroma/model.py || true
@@ -83,9 +77,10 @@ fi
 
 log "=== ENHANCEMENT COMPLETED ==="
 
-# 5. Restart ComfyUI cleanly (fixed path)
-log "Restarting ComfyUI..."
+# 5. Restart using the correct Vast.ai method
+log "Restarting ComfyUI using Vast.ai default method..."
 pkill -f "python.*main.py" || true
-sleep 8
-/entrypoint.sh >> "$LOG" 2>&1 &
-log "ComfyUI restarted. Check port 18188."
+sleep 10
+log "Starting ComfyUI via default boot script..."
+/opt/instance-tools/bin/boot_default.sh >> "$LOG" 2>&1 &
+log "ComfyUI should now be starting. Check port 18188 in 20-30 seconds."
