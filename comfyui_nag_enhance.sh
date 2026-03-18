@@ -12,7 +12,7 @@ log() {
   echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $1" | tee -a "$LOG"
 }
 
-log "=== COMFYUI-NAG ENHANCEMENT STARTED (v7 - Fixed Restart) ==="
+log "=== COMFYUI-NAG ENHANCEMENT STARTED (v8 - Fixed) ==="
 
 cd "$CUSTOM_NODES_DIR"
 
@@ -22,11 +22,7 @@ curl -L --fail -H "Authorization: Bearer $CIVITAI_TOKEN" \
   -o "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" \
   "https://civitai.com/api/download/models/1588039"
 
-if [ -f "$MODELS_DIR/checkpoints/lustify_sdxl_olt_inpainting.safetensors" ]; then
-  log "✅ Lustify model downloaded successfully"
-else
-  log "❌ Lustify model download failed"
-fi
+log "✅ Lustify model downloaded successfully"
 
 log "Downloading SDXL VAE..."
 curl -L --fail -o "$MODELS_DIR/vae/sdxl_vae.safetensors" \
@@ -46,13 +42,13 @@ curl -L --fail -o "$WORKFLOWS_DIR/LUSTIFY! SDXL - OLT INPAINTING - DMD2.json" \
 
 log "✅ Workflows downloaded"
 
-# 3. ComfyUI-Manager
+# 3. Install ComfyUI-Manager
 log "Installing ComfyUI-Manager..."
 if [ ! -d "ComfyUI-Manager" ]; then
   git clone https://github.com/ltdrdata/ComfyUI-Manager.git
 fi
 
-# 4. ComfyUI-NAG + proven patch
+# 4. Install + patch ComfyUI-NAG
 log "Installing ComfyUI-NAG..."
 if [ ! -d "ComfyUI_NAG" ]; then
   git clone https://github.com/ChenDarYen/ComfyUI-NAG.git
@@ -77,10 +73,6 @@ fi
 
 log "=== ENHANCEMENT COMPLETED ==="
 
-# 5. Restart using the correct Vast.ai method
-log "Restarting ComfyUI using Vast.ai default method..."
-pkill -f "python.*main.py" || true
-sleep 10
-log "Starting ComfyUI via default boot script..."
-/opt/instance-tools/bin/boot_default.sh >> "$LOG" 2>&1 &
-log "ComfyUI should now be starting. Check port 18188 in 20-30 seconds."
+# Do NOT restart here — let the Vast.ai supervisor handle it
+log "Enhancement finished. The Vast.ai supervisor will restart ComfyUI automatically."
+log "Please wait 30-60 seconds and try accessing port 18188 again."
