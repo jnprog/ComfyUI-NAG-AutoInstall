@@ -1,38 +1,20 @@
 #!/bin/bash
 set -e
 
-echo "=== ComfyUI-NAG Provisioning v9 - Clean Boot ==="
+echo "=== ComfyUI-NAG Boot Script (v10 - Fast Start) ==="
 
 COMFY="/opt/workspace-internal/ComfyUI"
 mkdir -p "$COMFY"/{custom_nodes,models/{checkpoints,vae},user/default/workflows}
 ln -sfn "$COMFY" /workspace/ComfyUI 2>/dev/null || true
 
-# Models
-if [ -n "$CIVITAI_TOKEN" ]; then
-  echo "Downloading Lustify SDXL NSFW Inpainting..."
-  curl -L -H "Authorization: Bearer $CIVITAI_TOKEN" \
-    "https://civitai.com/api/download/models/573152" \
-    -o "$COMFY/models/checkpoints/lustify_sdxl_olt_inpainting.safetensors"
-fi
-
-echo "Downloading SDXL VAE..."
-curl -L "https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors" \
-  -o "$COMFY/models/vae/sdxl_vae.safetensors"
-
-# Workflows (URL-encoded)
-cd "$COMFY/user/default/workflows"
-curl -L -O "https://raw.githubusercontent.com/jnprog/ComfyUI-NAG-AutoInstall/main/workflows/LUSTIFY!%20SDXL%20-%20OLT%20INPAINTING%20-%20NON-DMD2.json"
-curl -L -O "https://raw.githubusercontent.com/jnprog/ComfyUI-NAG-AutoInstall/main/workflows/LUSTIFY!%20SDXL%20-%20OLT%20INPAINTING%20-%20DMD2.json"
-
-# Nodes
+# Nodes (fast)
 cd "$COMFY/custom_nodes"
 for repo in ltdrdata/ComfyUI-Manager ltdrdata/ComfyUI-Impact-Pack cubiq/ComfyUI_IPAdapter_plus ChenDarYen/ComfyUI-NAG; do
   git clone https://github.com/$repo.git 2>/dev/null || git -C "${repo##*/}" pull
 done
 
-# NAG patches (exact working fix)
+# NAG patch
 cd ComfyUI-NAG
-echo "Applying NAG patches..."
 sed -i '5s|.*|from comfy.ldm.flux.layers import DoubleStreamBlock, SingleStreamBlock|' chroma/layers.py || true
 sed -i '/from comfy\.ldm\.flux\.model import Chroma/d' chroma/model.py || true
 sed -i '/import.*Chroma/d' chroma/model.py || true
@@ -41,5 +23,13 @@ if ! grep -q "from comfy.ldm.flux.model import Flux" chroma/model.py; then
   sed -i '1s|^|from comfy.ldm.flux.model import Flux\n|' chroma/model.py
 fi
 
-echo "=== PROVISIONING COMPLETE ==="
-echo "ComfyUI will start automatically on port 18188."
+# Start ComfyUI
+cd "$COMFY"
+echo "Starting ComfyUI on port 18188..."
+/venv/main/bin/python main.py \
+  --listen 0.0.0.0 \
+  --port 18188 \
+  --disable-metadata > /workspace/comfyui.log 2>&1 &
+
+echo "=== BOOT COMPLETE ==="
+echo "ComfyUI should be ready in 30-60 seconds."
