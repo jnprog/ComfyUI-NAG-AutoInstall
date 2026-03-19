@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== ComfyUI-NAG Provisioning v9 (PROVISIONING_SCRIPT) ==="
+echo "=== ComfyUI-NAG Provisioning v9 - Clean Boot ==="
 
 COMFY="/opt/workspace-internal/ComfyUI"
 mkdir -p "$COMFY"/{custom_nodes,models/{checkpoints,vae},user/default/workflows}
@@ -30,8 +30,9 @@ for repo in ltdrdata/ComfyUI-Manager ltdrdata/ComfyUI-Impact-Pack cubiq/ComfyUI_
   git clone https://github.com/$repo.git 2>/dev/null || git -C "${repo##*/}" pull
 done
 
-# NAG patches (exact working ones from your PDF + logs)
+# NAG patches (exact working fix)
 cd ComfyUI-NAG
+echo "Applying NAG patches..."
 sed -i '5s|.*|from comfy.ldm.flux.layers import DoubleStreamBlock, SingleStreamBlock|' chroma/layers.py || true
 sed -i '/from comfy\.ldm\.flux\.model import Chroma/d' chroma/model.py || true
 sed -i '/import.*Chroma/d' chroma/model.py || true
@@ -41,4 +42,4 @@ if ! grep -q "from comfy.ldm.flux.model import Flux" chroma/model.py; then
 fi
 
 echo "=== PROVISIONING COMPLETE ==="
-echo "Supervisor will restart ComfyUI automatically."
+echo "ComfyUI will start automatically on port 18188."
