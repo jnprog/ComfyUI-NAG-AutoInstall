@@ -3,7 +3,7 @@ set -e
 
 LOG="/workspace/comfyui_nag_enhance.log"
 mkdir -p /workspace
-echo "=== COMFYUI-NAG ENHANCEMENT STARTED (v14 - Civitai + Google Drive fallback) ===" | tee -a "$LOG"
+echo "=== COMFYUI-NAG ENHANCEMENT STARTED (v15 - Civitai + gdown Google Drive) ===" | tee -a "$LOG"
 date | tee -a "$LOG"
 
 # FORCE CORRECT PATH (2026 Vast.ai template)
@@ -11,7 +11,7 @@ COMFY="/opt/workspace-internal/ComfyUI"
 mkdir -p "$COMFY"/{custom_nodes,models/{checkpoints,vae,upscale_models},user/default/workflows}
 ln -sfn "$COMFY" /workspace/ComfyUI 2>/dev/null || true
 
-# ===================== LUSTIFY MODEL (CIVITAI + GOOGLE DRIVE FALLBACK) =====================
+# ===================== LUSTIFY MODEL (CIVITAI + GDOWN GOOGLE DRIVE) =====================
 MODEL_PATH="$COMFY/models/checkpoints/lustify_sdxl_olt_inpainting.safetensors"
 MIN_SIZE=6500000000  # ~6.5 GB
 
@@ -47,23 +47,25 @@ if [ -n "$CIVITAI_TOKEN" ]; then
   done
 fi
 
-# Google Drive fallback (full virus-scan bypass)
+# Google Drive fallback with gdown (the method that just worked for you)
 if [ "$DOWNLOADED" = false ] || [ ! -f "$MODEL_PATH" ] || [ $(stat -c %s "$MODEL_PATH" 2>/dev/null || echo 0) -lt $MIN_SIZE ]; then
-  echo "→ Civitai blocked — falling back to Google Drive mirror..." | tee -a "$LOG"
-  rm -f "$MODEL_PATH.tmp"
+  echo "→ Civitai blocked — falling back to Google Drive mirror with gdown..." | tee -a "$LOG"
+  rm -f "$MODEL_PATH" "$MODEL_PATH.tmp"
   
-  GD_ID="1_PkycSGBNdsSQus-YLBXYqsCO2J8THK_"
+  echo "→ Installing gdown..." | tee -a "$LOG"
+  /venv/main/bin/python -m pip install gdown --break-system-packages 2>/dev/null || python3 -m pip install gdown --break-system-packages || true
   
-  # Bypass Google virus scan warning
-  wget --quiet --load-cookies /tmp/cookies.txt "https://drive.google.com/uc?export=download&id=$GD_ID" -O /dev/null
-  CONFIRM=$(awk '/download/ {print $2}' /tmp/cookies.txt | head -1)
+  echo "→ Downloading full 6.5 GB Lustify model via gdown..." | tee -a "$LOG"
+  /venv/main/bin/python -m gdown 1_PkycSGBNdsSQus-YLBXYqsCO2J8THK_ -O "$MODEL_PATH" || \
+  python3 -m gdown 1_PkycSGBNdsSQus-YLBXYqsCO2J8THK_ -O "$MODEL_PATH"
   
-  wget --load-cookies /tmp/cookies.txt \
-    "https://drive.google.com/uc?export=download&confirm=$CONFIRM&id=$GD_ID" \
-    -O "$MODEL_PATH.tmp" --progress=dot:giga 2>&1 | tee -a "$LOG"
-  
-  mv "$MODEL_PATH.tmp" "$MODEL_PATH"
-  echo "✅ SUCCESS: Google Drive mirror ($(( $(stat -c %s "$MODEL_PATH")/1024/1024 )) MB)" | tee -a "$LOG"
+  SIZE=$(stat -c %s "$MODEL_PATH" 2>/dev/null || echo 0)
+  if [ $SIZE -gt $MIN_SIZE ]; then
+    echo "✅ SUCCESS: gdown Google Drive mirror ($((SIZE/1024/1024)) MB)" | tee -a "$LOG"
+    DOWNLOADED=true
+  else
+    echo "❌ Download still too small — please run gdown manually (see my previous message)" | tee -a "$LOG"
+  fi
 fi
 
 # ===================== SDXL VAE =====================
@@ -105,5 +107,5 @@ sleep 3
 cd "$COMFY"
 /venv/main/bin/python main.py --listen 0.0.0.0 --port 18188 --disable-metadata > /workspace/comfyui.log 2>&1 &
 
-echo "=== ENHANCEMENT COMPLETED (v14) ===" | tee -a "$LOG"
+echo "=== ENHANCEMENT COMPLETED (v15) ===" | tee -a "$LOG"
 echo "Refresh browser at http://localhost:18188 and load LUSTIFY_SDXL_OLT_INPAINTING_NON_DMD2.json" | tee -a "$LOG"
