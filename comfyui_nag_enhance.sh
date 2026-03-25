@@ -3,7 +3,7 @@ set -e
 
 LOG="/workspace/comfyui_nag_enhance.log"
 mkdir -p /workspace
-echo "=== COMFYUI-NAG ENHANCEMENT STARTED (v18 - REAL-TIME PROGRESS + your DMD2 LoRA) ===" | tee -a "$LOG"
+echo "=== COMFYUI-NAG ENHANCEMENT STARTED (v19 - Google Drive + Gofile fallback) ===" | tee -a "$LOG"
 date | tee -a "$LOG"
 
 # FORCE CORRECT PATH
@@ -43,18 +43,29 @@ if [ -n "$CIVITAI_TOKEN" ]; then
   done
 fi
 
+# ===================== GOOGLE DRIVE + GOFILE FALLBACK =====================
 if [ "$DOWNLOADED" = false ] || [ ! -f "$MODEL_PATH" ] || [ $(stat -c %s "$MODEL_PATH" 2>/dev/null || echo 0) -lt $MIN_SIZE ]; then
   echo "→ Falling back to Google Drive mirror with gdown..." | tee -a "$LOG"
   rm -f "$MODEL_PATH" "$MODEL_PATH.tmp"
   echo "→ Installing gdown..." | tee -a "$LOG"
   /venv/main/bin/python -m pip install gdown --break-system-packages 2>/dev/null || python3 -m pip install gdown --break-system-packages || true
-  echo "→ Downloading full Lustify model (this will show live % + speed + ETA)..." | tee -a "$LOG"
+  echo "→ Downloading full Lustify model (live % + speed + ETA)..." | tee -a "$LOG"
   /venv/main/bin/python -m gdown 1_PkycSGBNdsSQus-YLBXYqsCO2J8THK_ -O "$MODEL_PATH" 2>&1 | tee -a "$LOG"
   SIZE=$(stat -c %s "$MODEL_PATH" 2>/dev/null || echo 0)
+  
   if [ $SIZE -gt $MIN_SIZE ]; then
     echo "✅ SUCCESS: gdown Lustify mirror ($((SIZE/1024/1024)) MB)" | tee -a "$LOG"
   else
-    echo "❌ Download too small — run gdown manually" | tee -a "$LOG"
+    echo "❌ Google Drive too small — falling back to Gofile.io mirror..." | tee -a "$LOG"
+    rm -f "$MODEL_PATH" "$MODEL_PATH.tmp"
+    echo "→ Downloading from Gofile[](https://gofile.io/d/ufjNih)..." | tee -a "$LOG"
+    curl -L -J --progress-bar "https://gofile.io/d/ufjNih" -o "$MODEL_PATH" 2>&1 | tee -a "$LOG"
+    SIZE=$(stat -c %s "$MODEL_PATH" 2>/dev/null || echo 0)
+    if [ $SIZE -gt $MIN_SIZE ]; then
+      echo "✅ SUCCESS: Gofile Lustify mirror ($((SIZE/1024/1024)) MB)" | tee -a "$LOG"
+    else
+      echo "❌ Gofile download also failed — check the link or run manually" | tee -a "$LOG"
+    fi
   fi
 fi
 
@@ -132,6 +143,6 @@ sleep 3
 cd "$COMFY"
 /venv/main/bin/python main.py --listen 0.0.0.0 --port 18188 --disable-metadata > /workspace/comfyui.log 2>&1 &
 
-echo "=== ENHANCEMENT COMPLETED (v18) ===" | tee -a "$LOG"
+echo "=== ENHANCEMENT COMPLETED (v19) ===" | tee -a "$LOG"
 echo "Now run: tail -f /workspace/comfyui_nag_enhance.log" | tee -a "$LOG"
 echo "Refresh ComfyUI at http://localhost:18188 and load the DMD2 workflow" | tee -a "$LOG"
